@@ -2,61 +2,27 @@
 #define RAM_H
 
 #include <systemc>
-#include <vector>
 #include <cstdint>
+#include "Bus.h"
 
-using namespace sc_core;
-using namespace std;
+#define RAM_SIZE 4096 // 4 KB = 4 * 1024 Bytes of addresses.
+#define BUS_WIDTH 4  // 32 bits wide
+#define DEFAULT_VALUE_RAM  0XFFFFFFFF // 32 bits wide
+#define RAM_BASE 0x30000000 // base address assigned to RAM IP.
 
-uint32_t RAM_SIZE = 4096;
-uint32_t BUS_WIDTH = 4 ; // 32 bits wide
+class Ram : public sc_core::sc_module, public IBusSlave {
 
-class Ram : public sc_module {
 	private :
 	       	
-		vector<uint8_t> buffer;
-	
-	public : 
-		SC_HAS_PROCESS(Ram);		
-		Ram (sc_module_name name) : sc_module(name), buffer(RAM_SIZE,0){
-		}
+		uint32_t buffer[RAM_SIZE/BUS_WIDTH];
 
-		void bus_access(uint32_t addr, uint32_t &data, bool is_write){
+	public : 
 		
-			// first we need to check whether the addr is valid or not.
-	
-			if( (addr>=RAM_SIZE) | (addr+BUS_WIDTH > RAM_SIZE) ) {
-				
-				if(!is_write) data = 0; 
-				return ;
-			}
-		
-			// are we going to write ?
-			if(is_write){
-				
-				// bit manipulation came into picture to get 8 bits from 32 bit.
-				 
-				buffer[addr] = data & 0xFF ;
-				buffer[addr + 1] = (data>>8) & 0xFF ;
-				buffer[addr + 2] = (data>>16) & 0xFF ;
-				buffer[addr + 3] = (data>>24) & 0xFF ;
-			
-			}
-		
-			// are we going to read ?
-			else{
-				
-				// why casting is needed,
-				// because the RAM stores 8 bits, but we need 32 bit data to handle.	
-				
-				data =	static_cast<uint32_t>(buffer[addr]) | 
-					static_cast<uint32_t>(buffer[addr+1]<<8) | 
-					static_cast<uint32_t>(buffer[addr+2]<<16) | 
-					static_cast<uint32_t>(buffer[addr+3]<<24);
-			
-			}
-		
-		}
+//		SC_HAS_PROCESS(Ram);
+
+		Ram (sc_core::sc_module_name name, Bus &bus);
+
+		void bus_access(uint32_t addr, uint32_t &data, bool is_write);
 };
 
 #endif
