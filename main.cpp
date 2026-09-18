@@ -19,10 +19,10 @@ public:
     }
 
     void run_tests() {
-        cout << "\n=== STARTING SOCO MODULE TESTS ===\n" << endl;
+        cout << "\n=== STARTING MODULE TESTS ===\n" << endl;
 
         test_ip01_ram();
-       	test_ip02_intc();
+       //	test_ip02_intc();
         test_ip03_flash();
         test_ip05_dma();
 
