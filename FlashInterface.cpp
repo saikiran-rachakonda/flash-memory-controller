@@ -133,6 +133,10 @@ void FlashInterface::check_and_finalize_stream()
 
 void FlashInterface::execute_erase()
 {
+	if(m_len == 0){
+		save_flash_image();
+		return;
+	}	
     uint32_t start_addr = m_flash_addr/ FLASH_SECTOR_SIZE;
     uint32_t end_addr = ( m_flash_addr + m_len-1 ) / FLASH_SECTOR_SIZE ;
 	
@@ -151,11 +155,11 @@ void FlashInterface::interrupt_pulse_thread()
     while (true) {
         wait(m_pulse_done_ev | m_pulse_error_ev);
         
-        if (m_status & (1 << 1)) { // DONE pulse generated
+        if (m_pulse_done_ev.triggered()) { // DONE pulse generated
             fi_done_out.write(true);
             wait(SC_ZERO_TIME); // Hold for exactly 1 SystemC Delta cycle
             fi_done_out.write(false);
-        } else if (m_status & (1 << 2)) { // ERROR pulse generated
+        } else if (m_pulse_error_ev.triggered()) { // ERROR pulse generated
             fi_error_out.write(true);
             wait(SC_ZERO_TIME);
             fi_error_out.write(false);
@@ -168,8 +172,9 @@ void FlashInterface::load_flash_image()
     std::ifstream file(m_image_path, std::ios::binary);
     if (file) {
         file.read(reinterpret_cast<char*>(m_flash_mem.data()), FLASH_SIZE);
+    } else{
+	    save_flash_image();
     }
-    // If file doesn't exist, it retains default constructor 0xFF initialization state
 }
 
 void FlashInterface::save_flash_image()

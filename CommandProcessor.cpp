@@ -76,15 +76,15 @@ void CommandProcessor::fsm_thread()
         // Sequence Selection 
         if (op == 1) { // WRITE SEQUENCE: RAM -> Flash Staging Stream
             // Step 1: Program DMA Engine
-            success &= write_peripheral(DMA_BASE + 0x0C, RAM_BASE + m_ram_addr); // DMA_SRC_ADDR
-            success &= write_peripheral(DMA_BASE + 0x10, FI_DATA_REG);          // DMA_DST_ADDR
-            success &= write_peripheral(DMA_BASE + 0x14, m_len);                // DMA_LEN
+            if(success) success &= write_peripheral(DMA_BASE + 0x0C, RAM_BASE + m_ram_addr); // DMA_SRC_ADDR
+            if(success) success &= write_peripheral(DMA_BASE + 0x10, FI_DATA_REG);          // DMA_DST_ADDR
+            if(success) success &= write_peripheral(DMA_BASE + 0x14, m_len);                // DMA_LEN
             // CTRL Configuration: SRC_INC (1) | DST_INC (0) | START (1 << 8) = 0x101
-            success &= write_peripheral(DMA_BASE + 0x08, 0x00000101);           // DMA_CTRL
+            if(success) success &= write_peripheral(DMA_BASE + 0x08, 0x00000101);           // DMA_CTRL
             
             // Poll DMA Engine status until done
             if (success) success &= poll_peripheral_done(DMA_BASE);
-
+	    if(success) {
             // Step 2: Initialize Flash Interface to commit the stream
             success &= write_peripheral(FI_BASE + 0x04, m_flash_addr);          // FI_FLASH_ADDR
             success &= write_peripheral(FI_BASE + 0x08, m_len);                 // FI_LEN
@@ -93,20 +93,21 @@ void CommandProcessor::fsm_thread()
 
             // Step 3: Poll Flash Interface until done
             if (success) success &= poll_peripheral_done(FI_BASE);
+	    }
         }
         else if (op == 2) { // READ SEQUENCE: Flash -> Data RAM
             // Step 1: Initialize Flash Interface to stage and fetch from core memory
-            success &= write_peripheral(FI_BASE + 0x04, m_flash_addr);          // FI_FLASH_ADDR
-            success &= write_peripheral(FI_BASE + 0x08, m_len);                 // FI_LEN
+            if(success) success &= write_peripheral(FI_BASE + 0x04, m_flash_addr);          // FI_FLASH_ADDR
+            if(success) success &= write_peripheral(FI_BASE + 0x08, m_len);                 // FI_LEN
             // CTRL Configuration: OP = READ (2) | START (1 << 8) = 0x102
-            success &= write_peripheral(FI_BASE + 0x00, 0x00000102);            // FI_CTRL
+            if(success) success &= write_peripheral(FI_BASE + 0x00, 0x00000102);            // FI_CTRL
 
             // Step 2: Program DMA Engine to drain the Flash's streaming register
-            success &= write_peripheral(DMA_BASE + 0x0C, FI_DATA_REG);          // DMA_SRC_ADDR
-            success &= write_peripheral(DMA_BASE + 0x10, RAM_BASE + m_ram_addr); // DMA_DST_ADDR
-            success &= write_peripheral(DMA_BASE + 0x14, m_len);                // DMA_LEN
+            if(success) success &= write_peripheral(DMA_BASE + 0x0C, FI_DATA_REG);          // DMA_SRC_ADDR
+            if(success) success &= write_peripheral(DMA_BASE + 0x10, RAM_BASE + m_ram_addr); // DMA_DST_ADDR
+            if(success) success &= write_peripheral(DMA_BASE + 0x14, m_len);                // DMA_LEN
             // CTRL Configuration: SRC_INC (0) | DST_INC (1) | START (1 << 8) = 0x102
-            success &= write_peripheral(DMA_BASE + 0x08, 0x00000102);           // DMA_CTRL
+            if(success) success &= write_peripheral(DMA_BASE + 0x08, 0x00000102);           // DMA_CTRL
 
             // Poll both targets for complete drain synchronization
             if (success) success &= poll_peripheral_done(DMA_BASE);
@@ -114,10 +115,10 @@ void CommandProcessor::fsm_thread()
         }
         else if (op == 3) { // ERASE SEQUENCE: Pure Flash Range Erase
             // Step 1: Program Flash Interface registers directly (DMA completely bypassed)
-            success &= write_peripheral(FI_BASE + 0x04, m_flash_addr);          // FI_FLASH_ADDR
-            success &= write_peripheral(FI_BASE + 0x08, m_len);                 // FI_LEN
+            if(success) success &= write_peripheral(FI_BASE + 0x04, m_flash_addr);          // FI_FLASH_ADDR
+            if(success) success &= write_peripheral(FI_BASE + 0x08, m_len);                 // FI_LEN
             // CTRL Configuration: OP = ERASE (3) | START (1 << 8) = 0x103
-            success &= write_peripheral(FI_BASE + 0x00, 0x00000103);            // FI_CTRL
+            if(success) success &= write_peripheral(FI_BASE + 0x00, 0x00000103);            // FI_CTRL
 
             // Step 2: Poll Flash Interface until sector array updates complete
             if (success) success &= poll_peripheral_done(FI_BASE);

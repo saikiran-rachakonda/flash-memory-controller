@@ -8,7 +8,9 @@
 #define DMA_BASE  0x20000200
 #define  DMA_SIZE 256
 #define  DMA_ERR_NONE 0
-#define DMA_ERR_BUS 1 // Raised if a bus transaction returns false
+#define DMA_ERR_BUS 1
+#define DMA_ERR_ALIGN 2
+#define DMA_ERR_LEN 3
 
 class DmaEngine : public sc_core::sc_module, public IBusSlave
 {

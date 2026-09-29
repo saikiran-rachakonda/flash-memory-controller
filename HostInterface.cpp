@@ -29,58 +29,20 @@ void HostInterface::bus_access(uint32_t addr, uint32_t &data, bool is_write)
         switch (addr) {
             case 0x000: // HI_CMD [0x31.32]
                 {
-                    uint32_t requested_op = data & 0xF;
-                    bool start_strobe = (data & (1 << 8)) != 0;
+                    uint32_t requested_cmd = data & 0x0Fu;
+		    m_cmd = requested_cmd;
+                    bool start_strobe = (data & (1u << 8)) ;
 
                     if (start_strobe) {
                         // ERROR CODE 5: START written while BUSY is active [0x31.33]
-                        if (m_status & (1 << 0)) {
-                            m_status |= (1 << 2);          // Set ERROR bit
-                            m_status &= 0x0000000F;        // Clear previous error codes
-                            m_status |= (5 << 4);          // Latch BUSY Error Code (5)
-                            return;
-                        }
+                        if (m_status & 0x01u ) {
+                            m_status &= ~0x01u;        // Clear previous error codes
+                            m_status |= (1u << 2);          // Set ERROR bit
+                            m_status = (m_status & ~0xF0u) |  (5u << 4);          // Latch BUSY Error Code (5)
+                        }else {
+				m_start_req.notify(SC_ZERO_TIME);
+			}
 
-                        // Execute Command Validation Paths [0x31.33]
-                        uint32_t error_code = 0;
-
-                        // ERROR CODE 4: Check for Invalid Command Opcodes [0x31.33]
-                        if (requested_op > 3) {
-                            error_code = 4; // BAD_CMD
-                        }
-                        // ERROR CODE 1: Check Flash Device Boundaries [0x31.33]
-                        else if (static_cast<uint64_t>(m_flash_addr) + m_len > (1u * 1024 * 1024)) {
-                            error_code = 1; // BAD_ADDR
-                        }
-                        // ERROR CODE 2: Check for Erase Sector Alignment [0x31.33]
-                        else if (requested_op == 3 && ((m_flash_addr % 4096 != 0) || (m_len % 4096 != 0))) {
-                            error_code = 2; // UNALIGNED_ERASE
-                        }
-                        // ERROR CODE 3: Check for Length/RAM Offset Range Infractions [0x31.33]
-                        else if (m_len == 0 || m_len > 4096 ||
-                                ((requested_op == 1 || requested_op == 2) && (static_cast<uint64_t>(m_ram_addr) + m_len > 4096))) {
-                            error_code = 3; // BAD_LEN
-                        }
-
-                        // Evaluate validation results [0x31.32]
-                        if (error_code != 0) {
-                            m_status |= (1 << 2);          // Set ERROR bit
-                            m_status &= 0x0000000F;        // Clear old code footprints
-                            m_status |= (error_code << 4); // Latch validation code
-                            m_status &= ~(1 << 0);         // Section 5: BUSY explicitly stays 0
-                        } else {
-                            // Validation Passed: Update state fields and awake orchestrator [0x31.32]
-                            m_cmd = requested_op;          // Commit command
-                            m_status &= ~0x00000006;        // Clear old DONE and ERROR bits
-                            m_status |= (1 << 0);          // Raise BUSY status flag
-                           
-                            // Defer processing via event notification pattern [0x31.33]
-                            m_start_req.notify(SC_ZERO_TIME);
-                        }
-                    } else {
-                        // Plain configuration update without START bit set
-                        m_cmd = requested_op;
-                    }
                 }
                 break;
 
@@ -90,21 +52,23 @@ void HostInterface::bus_access(uint32_t addr, uint32_t &data, bool is_write)
            
             case 0x010: // HI_STATUS (W1C semantics for bits [1:2]) [0x31.32]
                 {
-                    uint32_t w1c_mask = data & 0x00000006;
-                    m_status &= ~w1c_mask;
-                    if (w1c_mask & (1 << 2)) {
-                        m_status &= 0x0000000F; // Clearing ERROR drops the error code [0x31.32]
-                    }
+			if(data & (1u << 1)) {
+				m_status &= ~(1u << 1);
+			}
+			if(data & (1u << 2)) {
+				m_status &= ~(1u << 2);
+				m_status &= ~0xF0u;
+			}
+		    break;
                 }
-                break;
 
-            case 0x014: m_irq_enable = data & 0x3; break; // HI_IRQ_ENABLE [0x31.32]
+            case 0x014: m_irq_enable = data & 0x03u; break; // HI_IRQ_ENABLE [0x31.32]
             default: break;
         }
     } else {
         // Read Transaction Routine Mapping [0x31.32]
         switch (addr) {
-            case 0x000: data = m_cmd;        break; // START bit always returns 0
+            case 0x000: data = m_cmd & 0x0Fu;        break; // START bit always returns 0
             case 0x04: data = m_flash_addr; break;
             case 0x08: data = m_ram_addr;   break;
             case 0x0C: data = m_len;        break;
@@ -115,84 +79,84 @@ void HostInterface::bus_access(uint32_t addr, uint32_t &data, bool is_write)
     }
 }
 
+uint32_t HostInterface::validate_command(uint32_t cmd){
+	if(cmd>3u){
+		return 4u;
+	}
+	if(cmd==0u){
+		return 0u;
+	}
+	if(m_len == 0u || m_len > RAM_MAX_SIZE) {
+		return 3u;
+	}
+	if(cmd == 1u || cmd == 2u ) {
+		if((uint64_t)m_ram_addr + m_len > RAM_MAX_SIZE){
+			return 3u;
+		}
+	}
+	if((uint64_t)m_flash_addr + m_len > FLASH_MAX_SIZE){
+		return 1u;
+	}
+	if(cmd == 3u){
+		if((m_flash_addr % SECTOR_SIZE != 0) || (m_len % SECTOR_SIZE != 0)){
+			return 2u;
+		}
+	}
+	
+	return 0u;
+}
+
 void HostInterface::orchestrate_thread()
 {
     while (true) {
         // Sleep until bus_access notifies a successful command start request [0x31.33]
         wait(m_start_req);
+	
+	uint32_t cmd = m_cmd & 0x0Fu;
+	uint32_t err_code = validate_command(cmd);
 
-        bool sequence_ok = true;
+        if (err_code != 0u) { // Skip processing if opcode is a NOP [0x31.33]
+        	m_status &= ~0x01u;
+		m_status |= (1u << 2);
+		m_status = (m_status & ~0xF0u) | (err_code << 4);
+		pulse(hi_error_out, (m_irq_enable & (1u << 1))!=0);
+		continue;
+	}
+	if(cmd == 0u){
+		m_status &= ~0x01u;
+		continue;
+	}
 
-        if (m_cmd != 0) { // Skip processing if opcode is a NOP [0x31.33]
-            // Step 4: Write Command Processor descriptors over the bus fabric [0x31.32]
-            sequence_ok &= write_cp_register(0x04, m_flash_addr); // CP_FLASH_ADDR
-            sequence_ok &= write_cp_register(0x08, m_ram_addr);   // CP_RAM_ADDR
-            sequence_ok &= write_cp_register(0x0C, m_len);        // CP_LEN
-           
-            // Launch Command Processor: OP field | START strobe bit (1 << 8) [0x31.32]
-            uint32_t cp_ctrl_word = m_cmd | (1 << 8);
-            sequence_ok &= write_cp_register(0x00, cp_ctrl_word); // CP_CTRL
+	m_status |= 0x01u;
 
-            // Step 5: Poll CP_STATUS until sequence completes [0x31.32]
-            if (sequence_ok) {
-                uint32_t cp_status = 0;
-                while (true) {
-                    if (!read_cp_register(0x10, cp_status)) { // Read CP_STATUS
-                        sequence_ok = false;
-                        break;
-                    }
-                   
-                    // Exit loop if BUSY[0] falls and DONE[1] or ERROR[2] asserts
-                    if (!(cp_status & (1 << 0))) {
-                        if (cp_status & (1 << 2)) {
-                            sequence_ok = false; // Downstream execution error caught
-                        }
-                        break;
-                    }
-                   
-                    // Section 8: Always include cooperative yields inside polling loops
-                    wait(SC_ZERO_TIME);
-                }
-            }
+	m_bus.write(CP_BASE + CP_FLASH_ADDR_OFF, m_flash_addr);
+	m_bus.write(CP_BASE + CP_RAM_ADDR_OFF, m_ram_addr);
+	m_bus.write(CP_BASE + CP_LEN_OFF, m_len);
+	m_bus.write(CP_BASE + CP_CTRL_OFF, cmd | 0x100u);
 
-            // Step 6: Issue Write-1-to-Clear to release the Command Processor status bit [0x31.32]
-            if (sequence_ok) {
-                write_cp_register(0x10, (1 << 1)); // Clear DONE
-            } else {
-                write_cp_register(0x10, (1 << 2)); // Clear ERROR
-            }
-        }
+	uint32_t cp_status = 0;
+	do{
+		wait(10, SC_NS);
+		m_bus.read(CP_BASE + CP_STATUS_OFF, cp_status);
+	}while((cp_status & 0x06u) == 0);
 
-        // Step 7: Finalize HI_STATUS bits (BUSY drops to 0 on ALL execution paths) [0x31.32, 0x31.33]
-        m_status &= ~(1 << 0); // Clear BUSY flag
-       
-        if (sequence_ok) {
-            m_status |= (1 << 1); // Set DONE flag
-           
-            // Step 8: Assert one-delta completion pulse if enabled [0x31.32]
-            if (m_irq_enable & (1 << 0)) { // CMD_DONE_EN
-                hi_done_out.write(true);
-                wait(SC_ZERO_TIME);
-                hi_done_out.write(false);
-            }
-        } else {
-            m_status |= (1 << 2); // Set ERROR flag
-           
-            if (m_irq_enable & (1 << 1)) { // CMD_ERROR_EN
-                hi_error_out.write(true);
-                wait(SC_ZERO_TIME);
-                hi_error_out.write(false);
-            }
-        }
+	m_bus.write(CP_BASE + CP_STATUS_OFF, cp_status & 0x06u);
+
+	m_status &= ~0x01u;
+
+	if(cp_status & (1u << 2)){
+		m_status |= (1u<<2);
+		pulse(hi_error_out, (m_irq_enable & (1u << 1))!=0);
+	}else{
+		m_status |= (1u << 1);
+		pulse(hi_done_out, (m_irq_enable & (1u << 0))!=0);
+	}
     }
 }
 
-bool HostInterface::write_cp_register(uint32_t offset, uint32_t data)
-{
-    return m_bus.write(CP_BASE_ADDR + offset, data);
-}
-
-bool HostInterface::read_cp_register(uint32_t offset, uint32_t &data)
-{
-    return m_bus.read(CP_BASE_ADDR + offset, data);
+void HostInterface::pulse(sc_out<bool> &pin, bool enabled){
+	if(!enabled) { return; }
+	pin.write(true);
+	wait(SC_ZERO_TIME);
+	pin.write(false);
 }

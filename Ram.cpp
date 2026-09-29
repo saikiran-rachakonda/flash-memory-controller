@@ -12,7 +12,7 @@ void Ram :: bus_access(uint32_t addr, uint32_t &data, bool is_write){
 		
 	// first we need to check whether the addr is valid or not.
 
-	if( (addr>=RAM_SIZE) | (addr+BUS_WIDTH > RAM_SIZE) ) {
+	if( addr>=RAM_SIZE ) {
 				
 		if(!is_write) data = 0; 
 		std::cout<<"the addr is not in the range"<< endl ;

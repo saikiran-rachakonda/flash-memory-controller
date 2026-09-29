@@ -28,7 +28,7 @@ void DmaEngine::bus_access(uint32_t addr, uint32_t &data, bool is_write)
                     m_status &= ~clear_mask;
                     // Clearing ERROR [2] explicitly clears ERROR_CODE [7:4]
                     if (clear_mask & (1 << 2)) {
-                        m_status &= 0x0000000F; // Clear upper error code bits
+                        m_status &= ~0x000000F0; // Clear upper error code bits
                     }
                 }
                 break;
@@ -44,7 +44,7 @@ void DmaEngine::bus_access(uint32_t addr, uint32_t &data, bool is_write)
                 if (data & (1 << 8)) {
                     // CRITICAL: Synchronously clear DONE/ERROR, clear byte counter,
                     // and raise BUSY immediately before waking the thread
-                    m_status &= ~0x00000006; // Clear DONE [1] and ERROR [2]
+                    m_status &= ~0x000000F6; // Clear DONE [1] and ERROR [2]
                     m_status |= (1 << 0);    // Set BUSY [0]
                     m_bytes_moved = 0;       // Reset transferred bytes counter
 
@@ -84,6 +84,20 @@ void DmaEngine::move_thread()
         uint32_t current_src = m_src_addr;
         uint32_t current_dst = m_dst_addr;
         uint32_t total_len   = m_len;
+	
+	if(total_len == 0 || (total_len % 4 != 0 )){
+		m_status &= ~(1<<0);
+		m_status |= (1<<1) | (1<<2) ;
+		m_status |= (DMA_ERR_LEN << 4);
+		continue;
+	}
+
+	if((current_src%4!=0)||(current_dst%4!=0)){
+		m_status &= ~(1<<0);
+		m_status |= (1<<1) | (1<<2);
+		m_status |= (DMA_ERR_ALIGN << 4);
+		continue;
+	}
 
         bool transfer_error = false;
 

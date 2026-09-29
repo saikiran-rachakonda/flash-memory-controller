@@ -13,8 +13,8 @@ class InterruptController : public sc_core :: sc_module, public IBusSlave {
 		// two registers.
 		uint32_t IRQCTRL_PENDING; // Read Only : 0x00 : latched interrupt sources, independed of mask
 		uint32_t IRQCTRL_MASK; // Read Write : 0x04 : per source enable.
-		sc_core::sc_event m_update_ev;
 
+		void update_irq_output();
 	public : 
 		
 		sc_in<bool> hi_done_in, hi_error_in;
@@ -29,6 +29,5 @@ class InterruptController : public sc_core :: sc_module, public IBusSlave {
 		void bus_access(uint32_t addr, uint32_t &data, bool is_write);
 
 		void pin_interrupt_handler();
-		void update_irq_output();
 
 } ;

@@ -7,14 +7,20 @@ Bus::Bus(sc_core::sc_module_name name) : sc_core::sc_module(name)
 
 void Bus::register_slave(const std::string &name, uint32_t base, uint32_t size, IBusSlave *slave)
 {
-    // CRITICAL: Overlapping window checks at ELABORATION time (Section 2.1)
-    uint32_t new_end = base + size;
+    if(slave == nullptr){
+    	SC_REPORT_FATAL("Bus::register_slave", ("Null slave pointer registered for region: "+ name).c_str());
+	return;
+    }
+	// CRITICAL: Overlapping window checks at ELABORATION time (Section 2.1)
+    uint64_t new_start = base;
+    uint64_t new_end = static_cast<uint64_t>(base) + size;
 
     for (const auto &region : m_slaves) {
-        uint32_t existing_end = region.base + region.size;
+	    uint64_t existing_start = region.base;
+        uint64_t existing_end = static_cast<uint64_t>(region.base) + region.size;
         
         // Check for boundary collision
-        if ((base < existing_end) && (new_end > region.base)) {
+        if ((new_start < existing_end) && (new_end > existing_start)) {
             std::string err_msg = "Bus Elaboration Error: Overlapping window detected between '" 
                                   + name + "' and '" + region.name + "'";
             SC_REPORT_FATAL("BUS_REGISTRATION", err_msg.c_str());
@@ -45,25 +51,20 @@ bool Bus::transact(uint32_t addr, uint32_t &data, bool is_write)
         if (addr >= region.base && addr < (region.base + region.size)) {
             target_slave = region.slave;
             relative_addr = addr - region.base; // Subtract base automatically
-            break;
+            target_slave->bus_access(relative_addr, data, is_write);
+	    m_bus_mutex.unlock();
+	    return true;
         }
     }
 
     // Unmapped Address handling
-    if (!target_slave) {
         if (!is_write) {
             data = 0; // Forced to 0 on unmapped reads
         }
-        m_bus_mutex.unlock();
-        return false; // Return false silently per requirements contract
-    }
-
-    // Execute the slave's register handler while holding the mutex
-    target_slave->bus_access(relative_addr, data, is_write);
-
+    
     // Release bus occupancy allocation
     m_bus_mutex.unlock();
-    return true;
+    return false;
 }
 
 bool Bus::write(uint32_t addr, uint32_t data)
